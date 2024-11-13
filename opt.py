@@ -9,9 +9,8 @@ from torchvision import transforms
 
 
 class PoisonGeneration(object):
-    def __init__(self, target_concept, device, eps=0.05):
+    def __init__(self, device, eps=0.05):
         self.eps = eps
-        self.target_concept = target_concept
         self.device = device
         self.full_sd_model = self.load_model()
         self.transform = self.resizer()
@@ -19,8 +18,8 @@ class PoisonGeneration(object):
     def resizer(self):
         image_transforms = transforms.Compose(
             [
-                transforms.Resize(512, interpolation=transforms.InterpolationMode.BILINEAR),
-                transforms.CenterCrop(512),
+                transforms.Resize(256, interpolation=transforms.InterpolationMode.BILINEAR),
+                transforms.CenterCrop(256),
             ]
         )
         return image_transforms
@@ -32,16 +31,18 @@ class PoisonGeneration(object):
             revision="fp16",
             torch_dtype=torch.float16,
         )
+        pipeline.set_progress_bar_config(disable=True)
         pipeline = pipeline.to(self.device)
         return pipeline
 
     def generate_target(self, prompts):
         torch.manual_seed(123)  # ensuring the target image is consistent across poison set
         with torch.no_grad():
-            target_imgs = self.full_sd_model(prompts, guidance_scale=7.5, num_inference_steps=50,
+            target_imgs = self.full_sd_model(prompts, guidance_scale=15, num_inference_steps=50,
                                              height=512, width=512).images
-        target_imgs[0].save("target.png")
-        return target_imgs[0]
+        
+        target_imgs[0].save("temp/target.png")
+        return self.transform(target_imgs[0])
 
     def get_latent(self, tensor):
         latent_features = self.full_sd_model.vae.encode(tensor).latent_dist.mean
@@ -63,7 +64,7 @@ class PoisonGeneration(object):
 
         modifier = torch.clone(source_tensor) * 0.0
 
-        t_size = 500
+        t_size = 100
         max_change = self.eps / 0.5  # scale from 0,1 to -1,1
         step_size = max_change
 
@@ -83,8 +84,8 @@ class PoisonGeneration(object):
             modifier = torch.clamp(modifier, -max_change, max_change)
             modifier = modifier.detach()
 
-            if i % 50 == 0:
-                print("# Iter: {}\tLoss: {:.3f}".format(i, loss.mean().item()))
+            #if i % 50 == 0:
+            #    print("# Iter: {}\tLoss: {:.3f}".format(i, loss.mean().item()))
 
         final_adv_batch = torch.clamp(modifier + source_tensor, -1.0, 1.0)
         final_img = tensor2img(final_adv_batch)
@@ -100,16 +101,18 @@ class PoisonGeneration(object):
 
 
 def img2tensor(cur_img):
-    cur_img = cur_img.resize((512, 512), resample=Image.Resampling.BICUBIC)
+    cur_img = cur_img.resize((256, 256), resample=Image.Resampling.BICUBIC)
     cur_img = np.array(cur_img)
     img = (cur_img / 127.5 - 1.0).astype(np.float32)
+    if img.shape==(256, 256):
+        img = np.repeat(img[:, :, np.newaxis], 3, axis=2)
     img = rearrange(img, 'h w c -> c h w')
     img = torch.tensor(img).unsqueeze(0)
     return img
 
 
 def tensor2img(cur_img):
-    if len(cur_img) == 512:
+    if len(cur_img) == 256:
         cur_img = cur_img.unsqueeze(0)
 
     cur_img = torch.clamp((cur_img.detach() + 1.0) / 2.0, min=0.0, max=1.0)
