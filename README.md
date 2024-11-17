@@ -1,3 +1,3 @@
-# Holllowshade
+# Silverspoon
 
 Nightshade detection model
