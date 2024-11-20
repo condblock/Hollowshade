@@ -9,9 +9,10 @@ from torchvision import transforms
 
 
 class PoisonGeneration(object):
-    def __init__(self, device, eps=0.05):
+    def __init__(self, device, dtype=torch.float16, eps=0.05):
         self.eps = eps
         self.device = device
+        self.dtype = dtype
         self.full_sd_model = self.load_model()
         self.transform = self.resizer()
 
@@ -29,7 +30,7 @@ class PoisonGeneration(object):
             "stabilityai/stable-diffusion-2-1",
             safety_checker=None,
             revision="fp16",
-            torch_dtype=torch.float16,
+            torch_dtype=self.dtype,
         )
         pipeline.set_progress_bar_config(disable=True)
         pipeline = pipeline.to(self.device)
